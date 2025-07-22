@@ -33,63 +33,60 @@ class ArucoDetector:
 
     def image_callback(self, data):
         try:
-            cv_image = self.bridge.imgmsg_to_cv2(data, desired_encoding="bgr8")
-        except CvBridgeError as e:
-            rospy.logerr(e)
-            return
+            self.latest_image = self.bridge.imgmsg_to_cv2(data, desired_encoding="bgr8")
+        except Exception as e:
+            rospy.logerr(f"CV Bridge error: {e}")
 
-        gray = cv2.cvtColor(cv_image, cv2.COLOR_BGR2GRAY)
-        corners, ids, _ = aruco.detectMarkers(gray, self.aruco_dict, parameters=self.parameters)
+    def run(self):
+        rate = rospy.Rate(2)  # Run at 2 Hz (adjust as needed)
+        while not rospy.is_shutdown():
+            if self.latest_image is None:
+                rate.sleep()
+                continue
 
-        if ids is not None:
-            aruco.drawDetectedMarkers(cv_image, corners, ids)
+            cv_image = self.latest_image.copy()
+            gray = cv2.cvtColor(cv_image, cv2.COLOR_BGR2GRAY)
+            corners, ids, _ = aruco.detectMarkers(gray, self.aruco_dict, parameters=self.parameters)
 
-            # Marker size is 0.10m (10cm)
-            rvecs, tvecs, _ = aruco.estimatePoseSingleMarkers(corners, 0.10, self.camera_matrix, self.dist_coeffs)
+            if ids is not None:
+                aruco.drawDetectedMarkers(cv_image, corners, ids)
+                rvecs, tvecs, _ = aruco.estimatePoseSingleMarkers(corners, 0.10, self.camera_matrix, self.dist_coeffs)
 
-            for i in range(len(ids)):
-                if ids[i][0] not in [0, 5]:
-                    continue
+                for i in range(len(ids)):
+                    if ids[i][0] not in [0, 5]:
+                        continue
 
-                rvec = rvecs[i][0]
-                tvec = tvecs[i][0]
+                    rvec, tvec = rvecs[i][0], tvecs[i][0]
+                    aruco.drawAxis(cv_image, self.camera_matrix, self.dist_coeffs, rvec, tvec, 0.05)
+                    rotation_matrix, _ = cv2.Rodrigues(rvec)
+                    quat = tf.transformations.quaternion_from_matrix(
+                        np.vstack((np.hstack((rotation_matrix, np.array([[0], [0], [0]]))), [0, 0, 0, 1]))
+                    )
 
-                # Draw axis
-                aruco.drawAxis(cv_image, self.camera_matrix, self.dist_coeffs, rvec, tvec, 0.05)
+                    t = TransformStamped()
+                    t.header.stamp = rospy.get_rostime()
+                    t.header.frame_id = self.camera_frame
+                    t.child_frame_id = f"aruco_marker_{ids[i][0]}"
+                    t.transform.translation.x = tvec[0]
+                    t.transform.translation.y = tvec[1]
+                    t.transform.translation.z = tvec[2]
+                    t.transform.rotation.x = quat[0]
+                    t.transform.rotation.y = quat[1]
+                    t.transform.rotation.z = quat[2]
+                    t.transform.rotation.w = quat[3]
+                    self.br.sendTransform(t)
 
-                # Convert rotation vector to quaternion
-                rotation_matrix, _ = cv2.Rodrigues(rvec)
-                transformation_matrix = np.eye(4)
-                transformation_matrix[:3, :3] = rotation_matrix
-                quat = tf.transformations.quaternion_from_matrix(
-                    np.vstack((np.hstack((rotation_matrix, np.array([[0],[0],[0]]))), [0,0,0,1]))
-                )
+                    rospy.loginfo(f"[aruco_marker_{ids[i][0]}] Position: {tvec}")
+                    rospy.loginfo(f"[aruco_marker_{ids[i][0]}] Rotation matrix:\n{rotation_matrix}")
 
-                # Publish TF frame for RViz visualization
-                t = TransformStamped()
-                t.header.stamp = rospy.get_rostime()  # More robust timestamp
-                t.header.frame_id = self.camera_frame  # Use correct camera frame
-                t.child_frame_id = f"aruco_marker_{ids[i][0]}"
-                t.transform.translation.x = tvec[0]
-                t.transform.translation.y = tvec[1]
-                t.transform.translation.z = tvec[2]
-                t.transform.rotation.x = quat[0]
-                t.transform.rotation.y = quat[1]
-                t.transform.rotation.z = quat[2]
-                t.transform.rotation.w = quat[3]
-                self.br.sendTransform(t)
-
-                # Print marker pose (position + rotation matrix)
-                rospy.loginfo(f"[aruco_marker_{ids[i][0]}] Position (x,y,z): {tvec[0]:.3f}, {tvec[1]:.3f}, {tvec[2]:.3f}")
-                rospy.loginfo(f"[aruco_marker_{ids[i][0]}] Rotation matrix:\n{rotation_matrix}")
-
-        cv2.imshow("Aruco Detection", cv_image)
-        cv2.waitKey(1)
+            cv2.imshow("Aruco Detection", cv_image)
+            cv2.waitKey(1)
+            rate.sleep()
 
 if __name__ == '__main__':
     detector = ArucoDetector()
     try:
-        rospy.spin()
+        detector.run()
     except rospy.ROSInterruptException:
         pass
     finally:
