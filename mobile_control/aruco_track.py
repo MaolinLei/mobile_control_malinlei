@@ -4,6 +4,7 @@ import tf
 import numpy as np
 import tf.transformations as tft
 import matplotlib.pyplot as plt
+import os
 
 
 def cubic_trajectory(t, T, p0, pf):
@@ -93,19 +94,24 @@ def main():
             time_stamps.append(t)
             t += dt
 
+        # Create a new folder relative to current script file
+        base_dir = os.path.dirname(os.path.abspath(__file__))  # Current script's directory
+        save_dir = os.path.join(base_dir, "trajectory_logs")   # New subfolder
+        os.makedirs(save_dir, exist_ok=True)  # Create folder if it doesn't exist
+
         # Save position file
-        with open("cubic_trajectory_position_mobile.txt", 'w') as f_pos:
-            # f_pos.write("# t [s], x [m], y [m], yaw [rad]\n")
+        position_file = os.path.join(save_dir, "cubic_trajectory_position_mobile.txt")
+        with open(position_file, 'w') as f_pos:
             for i in range(len(time_stamps)):
                 f_pos.write("{:.6f}, {:.6f}, {:.6f}\n".format(
-                     trajectory_x[i], trajectory_y[i], trajectory_yaw[i]
+                    trajectory_x[i], trajectory_y[i], trajectory_yaw[i]
                 ))
 
         # Save velocity file
-        with open("cubic_trajectory_velocity_mobile.txt", 'w') as f_vel:
-            # f_vel.write("# t [s], vx [m/s], vy [m/s], vyaw [rad/s]\n")
+        velocity_file = os.path.join(save_dir, "cubic_trajectory_velocity_mobile.txt")
+        with open(velocity_file, 'w') as f_vel:
             for i in range(len(time_stamps)):
-                f_vel.write(" {:.6f}, {:.6f}, {:.6f}\n".format(
+                f_vel.write("{:.6f}, {:.6f}, {:.6f}\n".format(
                     velocity_x[i], velocity_y[i], velocity_yaw[i]
                 ))
 
